@@ -1,0 +1,103 @@
+name: Spring Boot Pipeline
+
+on:
+  workflow_call:
+    inputs:
+      jdk:
+        required: true
+        type: string
+      base_image_branch:
+        required: false
+        type: string
+
+env:
+  ALMALINUX_VERSION: "9"
+
+jobs:
+  build:
+    name: Maven tests
+    runs-on: [self-hosted, linux, X64]
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v2
+      with:
+        fetch-depth: 0
+        
+    - name: Create Java base image string
+      shell: bash
+      run: |
+        if [ "${{ inputs.jdk }}" == "8" ]; then
+          IMAGE="rebuy-base-image-builder-maven"
+        else
+          IMAGE="java${{ inputs.jdk }}-maven"
+        fi
+
+        if [ "${{ inputs.base_image_branch }}" != "" ]; then
+          TAG="${ALMALINUX_VERSION}-${{ inputs.base_image_branch }}"
+        else
+          TAG="${ALMALINUX_VERSION}"
+        fi
+
+        echo "##[set-output name=image;]${IMAGE}:${TAG}"
+      id: generate_image
+
+    - name: Run tests
+      shell: bash
+      run: |
+        set -x
+        podman run --rm \
+          -e TESTCONTAINERS_RYUK_DISABLED=true \
+          -e TESTCONTAINERS_HOST_OVERRIDE=172.26.16.10 \
+          -v $(pwd):/silo \
+          -v /run/podman.sock:/run/docker.sock \
+          -v /home/github/cache/maven:/m2/repository \
+          -w /silo \
+          --entrypoint /bin/bash \
+          074509403805.dkr.ecr.eu-west-1.amazonaws.com/${{ steps.generate_image.outputs.image }} \
+          -c "mvnw --version && mvnw -Dspring.profiles.active=testing clean verify"
+
+    - name: Publish Test Report
+      uses: mikepenz/action-junit-report@v3
+      if: always() # always run even if the previous step fails
+      with:
+        report_paths: 'silo/target/*-reports/*.xml'
+
+  container_build:
+    runs-on: [self-hosted, linux, X64]
+    name: Container Build
+
+    steps:
+    - uses: actions/checkout@v2
+      with:
+        fetch-depth: 0
+
+    - name: Generate outputs
+      shell: bash
+      run: |
+        if [ "${GITHUB_EVENT_NAME}" == "pull_request" ]; then
+          echo "##[set-output name=tags;]074509403805.dkr.ecr.eu-west-1.amazonaws.com/${GITHUB_REPOSITORY:9}:${GITHUB_HEAD_REF}-gha 074509403805.dkr.ecr.eu-west-1.amazonaws.com/${GITHUB_REPOSITORY:9}:${GITHUB_SHA}-gha"
+        else
+          echo "##[set-output name=tags;]074509403805.dkr.ecr.eu-west-1.amazonaws.com/${GITHUB_REPOSITORY:9}:${GITHUB_REF}-gha 074509403805.dkr.ecr.eu-west-1.amazonaws.com/${GITHUB_REPOSITORY:9}:${GITHUB_SHA}-gha"
+        fi
+
+        if [ "${{ inputs.base_image_branch }}" != "" ]; then
+          echo "##[set-output name=base_image_tag;]${ALMALINUX_VERSION}-${{ inputs.base_image_branch }}"
+        else
+          echo "##[set-output name=base_image_tag;]${ALMALINUX_VERSION}"
+        fi
+      id: generate_tags
+
+    - name: Build
+      uses: redhat-actions/buildah-build@v2
+      with:
+        containerfiles: deployment/docker/Dockerfile
+        context: .
+        extra-args: |
+          -v=/home/github/cache/maven:/m2/repository:shared,rw
+          --build-arg=BASE_TAG=${{ steps.generate_tags.outputs.base_image_tag }}
+        tags: ${{ steps.generate_tags.outputs.tags }}
+
+    - name: Push to ECR
+      uses: redhat-actions/push-to-registry@v2
+      with:
+        tags: ${{ steps.generate_tags.outputs.tags }}
