@@ -92,9 +92,11 @@ jobs:
       with:
         containerfiles: deployment/docker/Dockerfile
         context: .
+        build-args: |
+          BASE_TAG=${{ steps.generate_tags.outputs.base_image_tag }}
         extra-args: |
           -v=/home/github/cache/maven:/m2/repository:shared,rw
-          --build-arg=BASE_TAG=${{ steps.generate_tags.outputs.base_image_tag }}
+          --ulimit=nofile=262144:262144
         tags: ${{ steps.generate_tags.outputs.tags }}
 
     - name: Push to ECR
