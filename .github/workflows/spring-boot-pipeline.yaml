@@ -89,6 +89,8 @@ jobs:
 
     - name: Build
       uses: redhat-actions/buildah-build@v2
+      env:
+        REGISTRY_AUTH_FILE: /run/user/1001/containers/auth.json
       with:
         containerfiles: deployment/docker/Dockerfile
         context: .
