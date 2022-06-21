@@ -9,6 +9,10 @@ on:
       base_image_branch:
         required: false
         type: string
+      wait_for_quality_gate:
+        required: false
+        type: boolean
+        default: false
     secrets:
       SONAR_AUTH_TOKEN:
         required: true
@@ -80,6 +84,13 @@ jobs:
           --entrypoint /bin/bash \
           074509403805.dkr.ecr.eu-west-1.amazonaws.com/${{ steps.generate_image.outputs.image }} \
           -c "mvnw sonar:sonar"
+
+    - name: Wait for SonarQube Quality Gate
+      if: ${{ github.event_name == 'push' && inputs.wait_for_quality_gate == true }}
+      uses: sonarsource/sonarqube-quality-gate-action@v1
+      timeout-minutes: 5
+      env:
+       SONAR_TOKEN: ${{ secrets.SONAR_AUTH_TOKEN }}
 
   container_build:
     runs-on: [self-hosted, linux, X64]
