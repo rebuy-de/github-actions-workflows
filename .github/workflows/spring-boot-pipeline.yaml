@@ -9,9 +9,13 @@ on:
       base_image_branch:
         required: false
         type: string
+    secrets:
+      SONAR_AUTH_TOKEN:
+        required: true
 
 env:
   ALMALINUX_VERSION: "9"
+  SONAR_HOST_URL: https://sonar.rebuy.tools
 
 jobs:
   build:
@@ -61,6 +65,21 @@ jobs:
       if: always() # always run even if the previous step fails
       with:
         report_paths: 'silo/target/*-reports/*.xml'
+
+    - name: Run SonarQube Analysis
+      shell: bash
+      if: ${{ github.event_name == 'push' }}
+      run: |
+        set -x
+        podman run --rm \
+          -v $(pwd):/silo \
+          -v /home/github/cache/maven:/m2/repository \
+          -e SONAR_AUTH_TOKEN=${{ secrets.SONAR_AUTH_TOKEN }} \
+          -e SONAR_HOST_URL=${SONAR_HOST_URL} \
+          -w /silo \
+          --entrypoint /bin/bash \
+          074509403805.dkr.ecr.eu-west-1.amazonaws.com/${{ steps.generate_image.outputs.image }} \
+          -c "mvnw sonar:sonar"
 
   container_build:
     runs-on: [self-hosted, linux, X64]
