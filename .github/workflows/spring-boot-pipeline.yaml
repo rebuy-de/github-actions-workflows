@@ -27,7 +27,7 @@ jobs:
       with:
         fetch-depth: 0
         
-    - name: Create Java base image string
+    - name: Generate outputs
       shell: bash
       run: |
         if [ "${{ inputs.jdk }}" == "8" ]; then
@@ -41,6 +41,14 @@ jobs:
         else
           TAG="${ALMALINUX_VERSION}"
         fi
+
+        if [ "${GITHUB_EVENT_NAME}" == "pull_request" ]; then
+          echo "##[set-output name=artifact_version;]${GITHUB_HEAD_REF}-SNAPSHOT"
+        else
+          echo "##[set-output name=artifact_version;]${GITHUB_REF:11}-snapshot"
+        fi
+
+        echo "##[set-output name=day_of_week;]$(date +%A)"
 
         echo "##[set-output name=image;]${IMAGE}:${TAG}"
       id: generate_image
@@ -80,6 +88,19 @@ jobs:
           --entrypoint /bin/bash \
           074509403805.dkr.ecr.eu-west-1.amazonaws.com/${{ steps.generate_image.outputs.image }} \
           -c "mvnw sonar:sonar"
+
+    - name: Upload Vagrant artifact
+      shell: bash
+      if: ${{ github.event_name == 'push' || github.event_name == 'pull_request' || ( github.event_name == 'schedule' && steps.generate_image.outputs.date == 'Sunday' ) }}
+      run: |
+        set -x
+        podman run --rm \
+          -v $(pwd):/silo \
+          -v /home/github/cache/maven:/m2/repository \
+          -w /silo \
+          --entrypoint /bin/bash \
+          074509403805.dkr.ecr.eu-west-1.amazonaws.com/${{ steps.generate_image.outputs.image }} \
+          -c "mvnw org.codehaus.mojo:versions-maven-plugin:2.11.0:set -pl silo -DnewVersion=${{ steps.generate_image.outputs.artifact_version }} && mvnw deploy -pl silo -Dspring.profiles.active=testing -DskipTests=true -DskipITs"
 
   container_build:
     runs-on: [self-hosted, linux, X64]
