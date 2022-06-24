@@ -50,6 +50,8 @@ jobs:
 
         echo "##[set-output name=day_of_week;]$(date +%A)"
 
+        echo "##[set-output name=host_ip;]$(curl -s http://169.254.169.254/latest/meta-data/local-ipv4)"
+
         echo "##[set-output name=image;]${IMAGE}:${TAG}"
       id: generate_image
 
@@ -59,7 +61,7 @@ jobs:
         set -x
         podman run --rm \
           -e TESTCONTAINERS_RYUK_DISABLED=true \
-          -e TESTCONTAINERS_HOST_OVERRIDE=172.26.16.10 \
+          -e TESTCONTAINERS_HOST_OVERRIDE=${{ steps.generate_image.outputs.host_ip }} \
           -v $(pwd):/silo \
           -v /run/podman.sock:/run/docker.sock \
           -v /home/github/cache/maven:/m2/repository \
