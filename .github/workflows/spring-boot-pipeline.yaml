@@ -9,6 +9,14 @@ on:
       base_image_branch:
         required: false
         type: string
+      maven_build_environment:
+        required: false
+        type: string
+        default: |
+          NPM_CONFIG_CACHE=/npm/cache
+          NPM_CONFIG_HOME=/npm
+          LC_ALL=en_US.UTF-8
+          LANG=en_US.UTF-8
     secrets:
       SONAR_AUTH_TOKEN:
         required: true
@@ -53,6 +61,16 @@ jobs:
         echo "##[set-output name=host_ip;]$(curl -s http://169.254.169.254/latest/meta-data/local-ipv4)"
 
         echo "##[set-output name=image;]${IMAGE}:${TAG}"
+
+        MAVEN_BUILD_ENV=""
+
+        while IFS= read -r ENV_LINE
+        do
+          MAVEN_BUILD_ENV="${MAVEN_BUILD_ENV} -e ${ENV_LINE}"
+        done < <(printf '%s' "${{ inputs.maven_build_environment }}")
+
+        echo "##[set-output name=maven_build_environment;]${MAVEN_BUILD_ENV}"
+
       id: generate_image
 
     - name: Run tests
@@ -62,9 +80,11 @@ jobs:
         podman run --rm \
           -e TESTCONTAINERS_RYUK_DISABLED=true \
           -e TESTCONTAINERS_HOST_OVERRIDE=${{ steps.generate_image.outputs.host_ip }} \
+          ${{ steps.generate_image.outputs.maven_build_environment }} \
           -v $(pwd):/silo \
           -v /run/podman.sock:/run/docker.sock \
           -v /home/github/cache/maven:/m2/repository \
+          -v /home/github/cache/npm:/npm/cache \
           -w /silo \
           --entrypoint /bin/bash \
           074509403805.dkr.ecr.eu-west-1.amazonaws.com/${{ steps.generate_image.outputs.image }} \
