@@ -17,6 +17,9 @@ on:
           NPM_CONFIG_HOME=/npm
           LC_ALL=en_US.UTF-8
           LANG=en_US.UTF-8
+      maven_builder_options:
+        required: false
+        type: string
     secrets:
       SONAR_AUTH_TOKEN:
         required: true
@@ -88,7 +91,7 @@ jobs:
           -w /silo \
           --entrypoint /bin/bash \
           074509403805.dkr.ecr.eu-west-1.amazonaws.com/${{ steps.generate_image.outputs.image }} \
-          -c "mvnw --version && mvnw -Dspring.profiles.active=testing clean verify"
+          -c "mvnw --version && mvnw ${{ inputs.maven_builder_options }} -Dspring.profiles.active=testing clean verify"
 
     - name: Publish Test Report
       uses: mikepenz/action-junit-report@v3
