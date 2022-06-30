@@ -20,6 +20,14 @@ on:
       maven_builder_options:
         required: false
         type: string
+      wait_for_quality_gate:
+        required: false
+        type: boolean
+        default: false
+      exposed_ports:
+        required: false
+        type: string
+        default: ""
     secrets:
       SONAR_AUTH_TOKEN:
         required: true
@@ -69,10 +77,23 @@ jobs:
 
         while IFS= read -r ENV_LINE
         do
-          MAVEN_BUILD_ENV="${MAVEN_BUILD_ENV} -e ${ENV_LINE}"
-        done < <(printf '%s' "${{ inputs.maven_build_environment }}")
+          if [ "$ENV_LINE" != "" ]; then
+            MAVEN_BUILD_ENV="${MAVEN_BUILD_ENV} -e ${ENV_LINE}"
+          fi
+        done < <(printf '%s\n' "${{ inputs.maven_build_environment }}")
 
         echo "##[set-output name=maven_build_environment;]${MAVEN_BUILD_ENV}"
+
+        EXPOSED_PORTS=""
+
+        while IFS= read -r PORT_LINE
+        do
+          if [ "$PORT_LINE" != "" ]; then
+            EXPOSED_PORTS="${EXPOSED_PORTS} -p ${PORT_LINE}:${PORT_LINE}"
+          fi
+        done < <(printf '%s\n' "${{ inputs.exposed_ports }}")
+
+        echo "##[set-output name=exposed_ports;]${EXPOSED_PORTS}"
 
       id: generate_image
 
@@ -84,11 +105,12 @@ jobs:
           -e TESTCONTAINERS_RYUK_DISABLED=true \
           -e TESTCONTAINERS_HOST_OVERRIDE=${{ steps.generate_image.outputs.host_ip }} \
           ${{ steps.generate_image.outputs.maven_build_environment }} \
-          -v $(pwd):/silo \
+          ${{ steps.generate_image.outputs.exposed_ports }} \
+          -v $(pwd):$(pwd) \
           -v /run/podman.sock:/run/docker.sock \
           -v /home/github/cache/maven:/m2/repository \
           -v /home/github/cache/npm:/npm/cache \
-          -w /silo \
+          -w $(pwd) \
           --entrypoint /bin/bash \
           074509403805.dkr.ecr.eu-west-1.amazonaws.com/${{ steps.generate_image.outputs.image }} \
           -c "mvnw --version && mvnw ${{ inputs.maven_builder_options }} -Dspring.profiles.active=testing clean verify"
@@ -105,11 +127,11 @@ jobs:
       run: |
         set -x
         podman run --rm \
-          -v $(pwd):/silo \
+          -v $(pwd):$(pwd) \
           -v /home/github/cache/maven:/m2/repository \
           -e SONAR_AUTH_TOKEN=${{ secrets.SONAR_AUTH_TOKEN }} \
           -e SONAR_HOST_URL=${SONAR_HOST_URL} \
-          -w /silo \
+          -w $(pwd) \
           --entrypoint /bin/bash \
           074509403805.dkr.ecr.eu-west-1.amazonaws.com/${{ steps.generate_image.outputs.image }} \
           -c "mvnw sonar:sonar"
@@ -120,12 +142,21 @@ jobs:
       run: |
         set -x
         podman run --rm \
-          -v $(pwd):/silo \
+          -v $(pwd):$(pwd) \
           -v /home/github/cache/maven:/m2/repository \
-          -w /silo \
+          -w $(pwd) \
           --entrypoint /bin/bash \
           074509403805.dkr.ecr.eu-west-1.amazonaws.com/${{ steps.generate_image.outputs.image }} \
           -c "mvnw org.codehaus.mojo:versions-maven-plugin:2.11.0:set -pl silo -DnewVersion=${{ steps.generate_image.outputs.artifact_version }} && mvnw deploy -pl silo -Dspring.profiles.active=testing -DskipTests=true -DskipITs"
+
+    - name: SonarQube Quality Gate check
+      if: inputs.wait_for_quality_gate && github.event_name == 'push'
+      uses: sonarsource/sonarqube-quality-gate-action@master
+      timeout-minutes: 5
+      with:
+        scanMetadataReportFile: target/sonar/report-task.txt
+      env:
+        SONAR_TOKEN: ${{ secrets.SONAR_AUTH_TOKEN }}
 
   container_build:
     runs-on: [self-hosted, linux, X64]
