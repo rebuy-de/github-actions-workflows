@@ -138,7 +138,7 @@ jobs:
 
     - name: Upload Vagrant artifact
       shell: bash
-      if: ${{ github.event_name == 'push' || github.event_name == 'pull_request' || ( github.event_name == 'schedule' && steps.generate_image.outputs.date == 'Sunday' ) }}
+      if: ${{ github.event_name == 'push' || github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch' || ( github.event_name == 'schedule' && steps.generate_image.outputs.date == 'Sunday' ) }}
       run: |
         set -x
         podman run --rm \
